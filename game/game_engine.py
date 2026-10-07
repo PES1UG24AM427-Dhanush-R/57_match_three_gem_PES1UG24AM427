@@ -28,6 +28,7 @@ class GameEngine:
 
             if self.board.selected is None:
                 self.board.selected = (row, col)
+                self.board.reset_idle()
             else:
                 prev_selected = self.board.selected
                 if prev_selected == (row, col):

@@ -1,4 +1,5 @@
 import random
+import math
 import pygame
 
 GRID_SIZE = 8
@@ -46,12 +47,18 @@ class Board:
         self.selected = None
         self.score = 0
         self.moves_remaining = max_moves
+        self.idle_timer = 0.0      # seconds since last player input
+        self.hint_pair = None      # ((r1,c1), (r2,c2)) or None
+        self.hint_time = 0.0       # running time used for pulse animation
         self.reset()
 
     def reset(self):
         self.score = 0
         self.moves_remaining = self.max_moves
         self.selected = None
+        self.idle_timer = 0.0
+        self.hint_pair = None
+        self.hint_time = 0.0
         for r in range(GRID_SIZE):
             for c in range(GRID_SIZE):
                 color = random.choice(GEM_COLORS)
@@ -204,10 +211,32 @@ class Board:
             self.drop_and_refill()
         return total_score
 
+    def find_hint(self):
+        """Return the first adjacent pair whose swap would create a match, or None."""
+        directions = [(0, 1), (1, 0)]
+        for r in range(GRID_SIZE):
+            for c in range(GRID_SIZE):
+                for dr, dc in directions:
+                    r2, c2 = r + dr, c + dc
+                    if 0 <= r2 < GRID_SIZE and 0 <= c2 < GRID_SIZE:
+                        self.swap_gems((r, c), (r2, c2))
+                        matches, specials = self.find_matches()
+                        self.swap_gems((r, c), (r2, c2))  # undo
+                        if matches or specials:
+                            return (r, c), (r2, c2)
+        return None
+
+    def reset_idle(self):
+        """Call whenever the player interacts — resets hint timer."""
+        self.idle_timer = 0.0
+        self.hint_pair = None
+        self.hint_time = 0.0
+
     def process_swap(self, pos1, pos2):
         if not self.is_adjacent(pos1, pos2) or self.is_game_over() or self.is_animating():
             return False
 
+        self.reset_idle()
         self.swap_gems(pos1, pos2)
         matches, specials = self.find_matches()
 
@@ -231,6 +260,23 @@ class Board:
         return None
 
     def update(self):
+        dt = pygame.time.get_ticks() / 1000.0  # absolute time in seconds
+
+        # Tick idle timer using frame delta (store last tick time)
+        if not hasattr(self, '_last_tick'):
+            self._last_tick = dt
+        delta = dt - self._last_tick
+        self._last_tick = dt
+
+        if not self.is_animating() and not self.is_game_over():
+            self.idle_timer += delta
+            if self.idle_timer >= 5.0:
+                self.hint_time += delta
+                if self.hint_pair is None:
+                    self.hint_pair = self.find_hint()
+        else:
+            self.idle_timer = 0.0
+
         for r in range(GRID_SIZE):
             for c in range(GRID_SIZE):
                 if self.grid[r][c]:
@@ -269,3 +315,17 @@ class Board:
                     pygame.draw.rect(
                         surface, (255, 255, 255), sel_rect, width=4, border_radius=10
                     )
+
+        # Draw pulsing hint highlight
+        if self.hint_pair:
+            pulse = int(127 + 127 * math.sin(self.hint_time * 4))  # 0–255 oscillating
+            hint_color = (pulse, 255, pulse)
+            for (hr, hc) in self.hint_pair:
+                hx = self.offset_x + hc * TILE_SIZE
+                hy = self.offset_y + hr * TILE_SIZE
+                hint_rect = pygame.Rect(hx + 2, hy + 2, TILE_SIZE - 4, TILE_SIZE - 4)
+                hint_surf = pygame.Surface((TILE_SIZE - 4, TILE_SIZE - 4), pygame.SRCALPHA)
+                hint_surf.fill((0, 0, 0, 0))
+                pygame.draw.rect(hint_surf, (*hint_color, pulse // 2), hint_surf.get_rect(), border_radius=10)
+                pygame.draw.rect(hint_surf, (*hint_color, 220), hint_surf.get_rect(), width=3, border_radius=10)
+                surface.blit(hint_surf, (hx + 2, hy + 2))
