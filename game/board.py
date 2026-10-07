@@ -114,6 +114,7 @@ class Board:
         return matched
 
     def drop_and_refill(self):
+        for c in range(GRID_SIZE):
             empty_slots = 0
             for r in range(GRID_SIZE - 1, -1, -1):
                 if self.grid[r][c] is None:
@@ -150,12 +151,11 @@ class Board:
         self.swap_gems(pos1, pos2)
         matches = self.find_matches()
 
-        self.moves_remaining -= 1
-
         if not matches:
             self.swap_gems(pos1, pos2)
             return False
 
+        self.moves_remaining -= 1
         cleared = self.resolve_matches()
         self.score += cleared * 10
         return True
