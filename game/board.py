@@ -22,6 +22,8 @@ class Gem:
         self.current_y = (target_row - 2) * TILE_SIZE
         self.target_y = target_row * TILE_SIZE
         self.fall_speed = 12.0
+        self.special = False       # True if this is a line-clear gem
+        self.orientation = None    # 'row' or 'col' — which line it clears
 
     def update(self):
         if self.current_y < self.target_y:
@@ -90,28 +92,58 @@ class Board:
 
     def find_matches(self):
         matched = set()
+        specials = []  # list of (r, c, orientation) for gems to promote to special
 
+        # Horizontal runs
         for r in range(GRID_SIZE):
-            for c in range(GRID_SIZE - 2):
-                if (
-                    self.grid[r][c]
-                    and self.grid[r][c + 1]
-                    and self.grid[r][c + 2]
-                    and self.grid[r][c].color == self.grid[r][c + 1].color == self.grid[r][c + 2].color
-                ):
-                    matched.update([(r, c), (r, c + 1), (r, c + 2)])
+            c = 0
+            while c < GRID_SIZE:
+                if not self.grid[r][c]:
+                    c += 1
+                    continue
+                run_color = self.grid[r][c].color
+                run_start = c
+                while c < GRID_SIZE and self.grid[r][c] and self.grid[r][c].color == run_color:
+                    c += 1
+                run_len = c - run_start
+                if run_len >= 3:
+                    cells = [(r, col) for col in range(run_start, run_start + run_len)]
+                    if run_len >= 4:
+                        # Pick the middle cell to become the special gem; mark rest for clearing
+                        mid = run_start + run_len // 2
+                        specials.append((r, mid, 'row'))
+                        for cell in cells:
+                            if cell != (r, mid):
+                                matched.add(cell)
+                    else:
+                        matched.update(cells)
 
-        for r in range(GRID_SIZE - 2):
-            for c in range(GRID_SIZE):
-                if (
-                    self.grid[r][c]
-                    and self.grid[r + 1][c]
-                    and self.grid[r + 2][c]
-                    and self.grid[r][c].color == self.grid[r + 1][c].color == self.grid[r + 2][c].color
-                ):
-                    matched.update([(r, c), (r + 1, c), (r + 2, c)])
+        # Vertical runs
+        for c in range(GRID_SIZE):
+            r = 0
+            while r < GRID_SIZE:
+                if not self.grid[r][c]:
+                    r += 1
+                    continue
+                run_color = self.grid[r][c].color
+                run_start = r
+                while r < GRID_SIZE and self.grid[r][c] and self.grid[r][c].color == run_color:
+                    r += 1
+                run_len = r - run_start
+                if run_len >= 3:
+                    cells = [(row, c) for row in range(run_start, run_start + run_len)]
+                    if run_len >= 4:
+                        mid = run_start + run_len // 2
+                        specials.append((mid, c, 'col'))
+                        for cell in cells:
+                            if cell != (mid, c):
+                                matched.add(cell)
+                    else:
+                        matched.update(cells)
 
-        return matched
+        # Don't mark special-gem cells for immediate clearing; they stay on the board
+        # But if a special gem itself is in the matched set (caught by a 3-match), keep it
+        return matched, specials
 
     def drop_and_refill(self):
         for c in range(GRID_SIZE):
@@ -136,9 +168,35 @@ class Board:
         total_score = 0
         cascade = 1
         while True:
-            matches = self.find_matches()
-            if not matches:
+            matches, specials = self.find_matches()
+
+            # Promote gems to special (4-in-a-row) — do this before clearing
+            for r, c, orientation in specials:
+                gem = self.grid[r][c]
+                if gem and not gem.special:
+                    gem.special = True
+                    gem.orientation = orientation
+
+            # If a special gem is in the matched set, detonate its line
+            extra_clears = set()
+            for r, c in list(matches):
+                gem = self.grid[r][c]
+                if gem and gem.special:
+                    if gem.orientation == 'row':
+                        for cc in range(GRID_SIZE):
+                            extra_clears.add((r, cc))
+                    else:
+                        for rr in range(GRID_SIZE):
+                            extra_clears.add((rr, c))
+            matches.update(extra_clears)
+
+            if not matches and not specials:
                 break
+
+            if not matches:
+                # Only specials were created this round, no cells to clear
+                break
+
             total_score += len(matches) * 10 * cascade
             cascade += 1
             for r, c in matches:
@@ -151,9 +209,9 @@ class Board:
             return False
 
         self.swap_gems(pos1, pos2)
-        matches = self.find_matches()
+        matches, specials = self.find_matches()
 
-        if not matches:
+        if not matches and not specials:
             self.swap_gems(pos1, pos2)
             return False
 
@@ -197,6 +255,12 @@ class Board:
                     pygame.draw.rect(
                         surface, (255, 255, 255), tile_rect, width=1, border_radius=10
                     )
+                    # Draw glowing star/circle for special line-clear gems
+                    if gem.special:
+                        cx = x + TILE_SIZE // 2
+                        cy = y + TILE_SIZE // 2
+                        pygame.draw.circle(surface, (255, 255, 255), (cx, cy), 10)
+                        pygame.draw.circle(surface, (255, 240, 80), (cx, cy), 6)
 
                 if self.selected == (r, c):
                     sel_x = self.offset_x + c * TILE_SIZE
