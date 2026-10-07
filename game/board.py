@@ -133,16 +133,18 @@ class Board:
                 self.grid[r][c] = gem
 
     def resolve_matches(self):
-        total_cleared = 0
+        total_score = 0
+        cascade = 1
         while True:
             matches = self.find_matches()
             if not matches:
                 break
-            total_cleared += len(matches)
+            total_score += len(matches) * 10 * cascade
+            cascade += 1
             for r, c in matches:
                 self.grid[r][c] = None
             self.drop_and_refill()
-        return total_cleared
+        return total_score
 
     def process_swap(self, pos1, pos2):
         if not self.is_adjacent(pos1, pos2) or self.is_game_over() or self.is_animating():
@@ -156,8 +158,8 @@ class Board:
             return False
 
         self.moves_remaining -= 1
-        cleared = self.resolve_matches()
-        self.score += cleared * 10
+        score_gained = self.resolve_matches()
+        self.score += score_gained
         return True
 
     def is_game_over(self):
